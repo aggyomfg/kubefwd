@@ -2,6 +2,7 @@ package fwdsvcregistry
 
 import (
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/txn2/kubefwd/pkg/fwdservice"
@@ -32,6 +33,33 @@ func Init(shutDownSignal <-chan struct{}) {
 		<-svcRegistry.shutDownSignal
 		ShutDownAll()
 		close(svcRegistry.doneSignal)
+	}()
+
+	// watcher to take care of PortForwards.DoneChan of each service in registry, reSyncs forwarding if its dead
+	go func() {
+		for {
+			for _, svc := range svcRegistry.services {
+				select {
+				case <-time.After(500 * time.Millisecond):
+					go func() {
+						for _, pod := range svc.PortForwards {
+							select {
+							case done, ok := <-pod.DoneChan:
+								if ok {
+									log.Debugf("%s pod.DoneChan - %d - was read. Resync forwarding\n", pod.PodName, done)
+									go svc.SyncPodForwards(true)
+								} else {
+									log.Debugf("%s pod.DoneChan closed! Resync forwarding\n", pod.PodName)
+									go svc.SyncPodForwards(true)
+								}
+							default:
+								// log.Debugf("Total forwards in %s: %d", svc.String(), len(svc.PortForwards))
+							}
+						}
+					}()
+				}
+			}
+		}
 	}()
 }
 

@@ -55,6 +55,7 @@ var contexts []string
 var verbose bool
 var domain string
 var mappings []string
+var flagNoRoot bool
 
 func init() {
 	// override error output from k8s.io/apimachinery/pkg/util/runtime
@@ -70,6 +71,7 @@ func init() {
 	Cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output.")
 	Cmd.Flags().StringVarP(&domain, "domain", "d", "", "Append a pseudo domain name to generated host names.")
 	Cmd.Flags().StringSliceVarP(&mappings, "mapping", "m", []string{}, "Specify a port mapping. Specify multiple mapping by duplicating this argument.")
+	Cmd.Flags().BoolVarP(&flagNoRoot, "no-root", "r", false, "Diasbles need in root priveleges (no custom loopback interface, no low port numbers, no hosts mapping, only localhost)")
 
 }
 
@@ -129,10 +131,12 @@ func runCmd(cmd *cobra.Command, _ []string) {
 		log.SetLevel(log.DebugLevel)
 	}
 
-	hasRoot, err := utils.CheckRoot()
+	var hostFile *txeh.Hosts
 
-	if !hasRoot {
-		log.Errorf(`
+	if !flagNoRoot {
+		hasRoot, err := utils.CheckRoot()
+		if !hasRoot {
+			log.Errorf(`
 This program requires superuser privileges to run. These
 privileges are required to add IP address aliases to your
 loopback interface. Superuser privileges are also needed
@@ -143,33 +147,34 @@ Try:
  - Running a shell with administrator rights (Windows)
 
 `)
-		if err != nil {
-			log.Fatalf("Root check failure: %s", err.Error())
+			if err != nil {
+				log.Fatalf("Root check failure: %s", err.Error())
+			}
+			return
 		}
-		return
-	}
 
-	log.Println("Press [Ctrl-C] to stop forwarding.")
-	log.Println("'cat /etc/hosts' to see all host entries.")
+		log.Println("Press [Ctrl-C] to stop forwarding.")
+		log.Println("'cat /etc/hosts' to see all host entries.")
 
-	hostFile, err := txeh.NewHostsDefault()
-	if err != nil {
-		log.Fatalf("HostFile error: %s", err.Error())
-		os.Exit(1)
-	}
+		hostFile, err = txeh.NewHostsDefault()
+		if err != nil {
+			log.Fatalf("HostFile error: %s", err.Error())
+			os.Exit(1)
+		}
 
-	log.Printf("Loaded hosts file %s\n", hostFile.ReadFilePath)
+		log.Printf("Loaded hosts file %s\n", hostFile.ReadFilePath)
 
-	msg, err := fwdhost.BackupHostFile(hostFile)
-	if err != nil {
-		log.Fatalf("Error backing up hostfile: %s\n", err.Error())
-		os.Exit(1)
-	}
+		msg, err := fwdhost.BackupHostFile(hostFile)
+		if err != nil {
+			log.Fatalf("Error backing up hostfile: %s\n", err.Error())
+			os.Exit(1)
+		}
 
-	log.Printf("HostFile management: %s", msg)
+		log.Printf("HostFile management: %s", msg)
 
-	if domain != "" {
-		log.Printf("Adding custom domain %s to all forwarded entries\n", domain)
+		if domain != "" {
+			log.Printf("Adding custom domain %s to all forwarded entries\n", domain)
+		}
 	}
 
 	// if sudo -E is used and the KUBECONFIG environment variable is set
@@ -293,6 +298,7 @@ Try:
 				Domain:            domain,
 				ManualStopChannel: stopListenCh,
 				PortMapping:       mappings,
+				FlagNoRoot:        flagNoRoot,
 			}
 
 			go func(npo NamespaceOpts) {
@@ -345,6 +351,7 @@ type NamespaceOpts struct {
 	PortMapping []string
 
 	ManualStopChannel chan struct{}
+	FlagNoRoot        bool
 }
 
 // watchServiceEvents sets up event handlers to act on service-related events.
@@ -418,6 +425,7 @@ func (opts *NamespaceOpts) AddServiceHandler(obj interface{}) {
 		SyncDebouncer:        debounce.New(5 * time.Second),
 		DoneChannel:          make(chan struct{}),
 		PortMap:              opts.ParsePortMap(mappings),
+		FlagNoRoot:           opts.FlagNoRoot,
 	}
 
 	// Add the service to the catalog of services being forwarded

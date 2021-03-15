@@ -143,6 +143,7 @@ Flags:
   -n, --namespace strings   Specify a namespace. Specify multiple namespaces by duplicating this argument.
   -l, --selector string     Selector (label query) to filter on; supports '=', '==', '!=' (e.g. -l key1=value1,key2=value2) and 'in' (e.g. -l "app in (value1, value2)").
   -m, --mapping strings     Specify a port mapping. Specify multiple mapping by duplicating this argument.
+  -r, --no-root             Diasbles need in root priveleges (no custom loopback interface, no low port numbers, no hosts mapping, only localhost)
   -v, --verbose             Verbose output.
 ```
 

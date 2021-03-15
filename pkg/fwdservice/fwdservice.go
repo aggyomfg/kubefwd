@@ -2,6 +2,7 @@ package fwdservice
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"sync"
 	"time"
@@ -69,6 +70,7 @@ type ServiceFWD struct {
 	// key = podName
 	PortForwards map[string]*fwdport.PortForwardOpts
 	DoneChannel  chan struct{} // After shutdown is complete, this channel will be closed
+	FlagNoRoot   bool
 }
 
 /**
@@ -230,10 +232,15 @@ func (svcFwd *ServiceFWD) LoopPodsToForward(pods []v1.Pod, includePodNameInHost 
 			serviceHostName = pod.Name + "." + svcFwd.Svc.Name
 			svcName = pod.Name + "." + svcFwd.Svc.Name
 		}
-
-		localIp, err := fwdnet.ReadyInterface(svcName, pod.Name, svcFwd.ClusterN, svcFwd.NamespaceN, podPort)
-		if err != nil {
-			log.Warnf("WARNING: error readying interface: %s\n", err)
+		var localIp net.IP
+		if svcFwd.FlagNoRoot {
+			localIp = net.IPv4(127, 0, 0, 1)
+		} else {
+			var err error
+			localIp, err = fwdnet.ReadyInterface(svcName, pod.Name, svcFwd.ClusterN, svcFwd.NamespaceN, podPort)
+			if err != nil {
+				log.Warnf("WARNING: error readying interface: %s\n", err)
+			}
 		}
 
 		// if this is not the first namespace on the
@@ -309,6 +316,7 @@ func (svcFwd *ServiceFWD) LoopPodsToForward(pods []v1.Pod, includePodNameInHost 
 
 				ManualStopChan: make(chan struct{}),
 				DoneChan:       make(chan struct{}),
+				FlagNoRoot:     svcFwd.FlagNoRoot,
 			}
 
 			// Fire and forget. The stopping is done in the service.Shutdown() method.

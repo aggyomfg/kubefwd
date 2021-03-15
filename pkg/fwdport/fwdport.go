@@ -2,12 +2,13 @@ package fwdport
 
 import (
 	"fmt"
-	"k8s.io/apimachinery/pkg/util/httpstream"
 	"net"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
+
+	"k8s.io/apimachinery/pkg/util/httpstream"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/txn2/kubefwd/pkg/fwdnet"
@@ -83,6 +84,7 @@ type PortForwardOpts struct {
 	Hosts          []string
 	ManualStopChan chan struct{} // Send a signal on this to stop the portforwarding
 	DoneChan       chan struct{} // Listen on this channel for when the shutdown is completed.
+	FlagNoRoot     bool
 }
 
 type pingingDialer struct {
@@ -152,15 +154,18 @@ func (pfo *PortForwardOpts) PortForward() error {
 	downstreamStopChannel := make(chan struct{}) // @TODO: can this be the same as pfStopChannel?
 
 	localNamedEndPoint := fmt.Sprintf("%s:%s", pfo.Service, pfo.LocalPort)
-
-	pfo.AddHosts()
+	if !pfo.FlagNoRoot {
+		pfo.AddHosts()
+	}
 
 	// Wait until the stop signal is received from above
 	go func() {
 		<-pfo.ManualStopChan
 		close(downstreamStopChannel)
-		pfo.removeHosts()
-		pfo.removeInterfaceAlias()
+		if !pfo.FlagNoRoot {
+			pfo.removeHosts()
+			pfo.removeInterfaceAlias()
+		}
 		close(pfStopChannel)
 
 	}()
